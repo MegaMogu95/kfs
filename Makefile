@@ -6,17 +6,19 @@ LDFLAGS := -ffreestanding -O2 -nostdlib
 
 KERNEL  := kfs
 ISO     := kfs.iso
-OBJS    := boot.o kernel.o
 ISODIR  := isodir
 GRUBCFG := grub.cfg
+
+SRCS    := kernel.c vga.c terminal.c string.c ps2.c keyboard.c kbd_buffer.c printk.c
+OBJS    := boot.o $(SRCS:.c=.o)
 
 all: $(ISO)
 
 boot.o: boot.s
 	$(AS) boot.s -o boot.o
 
-kernel.o: kernel.c
-	$(CC) -c kernel.c -o kernel.o $(CFLAGS)
+%.o: %.c
+	$(CC) -c $< -o $@ $(CFLAGS)
 
 $(KERNEL): $(OBJS) linker.ld
 	$(CC) -T linker.ld -o $(KERNEL) $(LDFLAGS) $(OBJS) -lgcc
@@ -30,12 +32,6 @@ $(ISO): $(KERNEL) $(GRUBCFG)
 	grub-mkrescue -o $(ISO) $(ISODIR) --install-modules="multiboot normal iso9660 biosdisk configfile" \
 	--locales="" --fonts="" --themes=""
 
-run: $(ISO)
-	qemu-system-i386 -cdrom $(ISO)
-
-run-kernel: $(KERNEL)
-	qemu-system-i386 -kernel $(KERNEL)
-
 clean:
 	rm -rf $(OBJS) $(ISODIR)
 
@@ -44,4 +40,4 @@ fclean: clean
 
 re: fclean all
 
-.PHONY: all run run-kernel clean fclean re
+.PHONY: all clean fclean re
