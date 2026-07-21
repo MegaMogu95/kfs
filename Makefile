@@ -1,24 +1,26 @@
-CC      := i686-elf-gcc
-AS      := i686-elf-as
+CC		:= i686-elf-gcc
+AS		:= i686-elf-as
 
-CFLAGS  := -std=gnu99 -ffreestanding -O2 -Wall -Wextra -fno-builtin -fno-stack-protector -g
-LDFLAGS := -ffreestanding -O2 -nostdlib
+CFLAGS	:= -std=gnu99 -ffreestanding -O2 -Wall -Wextra -fno-builtin -fno-stack-protector -g
+LDFLAGS	:= -ffreestanding -O2 -nostdlib
+INCLUDE	:= include
 
-KERNEL  := kfs
-ISO     := kfs.iso
-ISODIR  := isodir
-GRUBCFG := grub.cfg
+KERNEL	:= kfs
+ISO		:= kfs.iso
+ISODIR	:= isodir
+GRUBCFG	:= grub.cfg
 
-SRCS    := kernel.c vga.c terminal.c string.c ps2.c keyboard.c kbd_buffer.c printk.c
-OBJS    := boot.o $(SRCS:.c=.o)
+CSRCS	:= kernel.c terminal/vga.c terminal/terminal.c utils/string.c utils/printk.c keyboard/ps2.c keyboard/keyboard.c keyboard/kbd_buffer.c
+SSRCS	:= boot.s
+OBJS    := boot.o $(CSRCS:.c=.o)
 
 all: $(ISO)
 
-boot.o: boot.s
-	$(AS) boot.s -o boot.o
+%.o: %.s
+	$(AS) $< -o $@
 
 %.o: %.c
-	$(CC) -c $< -o $@ $(CFLAGS)
+	$(CC) -c $< -o $@ $(CFLAGS) -I$(INCLUDE)
 
 $(KERNEL): $(OBJS) linker.ld
 	$(CC) -T linker.ld -o $(KERNEL) $(LDFLAGS) $(OBJS) -lgcc

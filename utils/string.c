@@ -15,21 +15,23 @@ void	*memset(void *dst, int c, size_t n)
 
 	for (size_t i = 0; i < n; i++)
 		dst_chr[i] = c;
+	return (dst);
 }
 
 void	*memcpy(void *dst, const void *src, size_t n)
 {
-	unsigned char	*dst_chr = dst;
-	unsigned char	*src_chr = src;
+	unsigned char		*dst_chr = dst;
+	const unsigned char	*src_chr = src;
 
 	for (size_t i = 0; i < n; i++)
 		dst_chr[i] = src_chr[i];
+	return (dst);
 }
 
 void	*memmove(void *dst, const void *src, size_t n)
 {
-	unsigned char	*dst_chr = dst;
-	unsigned char	*src_chr = src;
+	unsigned char		*dst_chr = dst;
+	const unsigned char	*src_chr = src;
 
 	if (dst < src)
 		memcpy(dst, src, n);
@@ -38,6 +40,7 @@ void	*memmove(void *dst, const void *src, size_t n)
 		for (size_t i = n; i > 0; i--)
 			dst_chr[i - 1] = src_chr[i - 1];
 	}
+	return (dst);
 }
 
 int	strcmp(const char *a, const char *b)
