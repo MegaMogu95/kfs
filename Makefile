@@ -11,8 +11,8 @@ ISODIR	:= isodir
 GRUBCFG	:= grub.cfg
 
 CSRCS	:= kernel.c terminal/vga.c terminal/terminal.c utils/string.c utils/printk.c keyboard/ps2.c keyboard/keyboard.c keyboard/kbd_buffer.c
-SSRCS	:= boot.s
-OBJS    := boot.o $(CSRCS:.c=.o)
+SSRCS	:= boot.s GDT/gdt.s
+OBJS    := $(SSRCS:.s=.o) $(CSRCS:.c=.o)
 
 all: $(ISO)
 

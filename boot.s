@@ -19,8 +19,9 @@ stack_top:
 .section .text
 .global _start
 _start:
-	mov $stack_top, %esp
-	call kernel_main
 	cli
+	call	gdt_init
+	mov		$stack_top, %esp
+	call	kernel_main
 1:	hlt
 	jmp 1b
