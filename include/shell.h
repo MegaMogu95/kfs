@@ -1,9 +1,7 @@
 #ifndef SHELL_H
 # define SHELL_H
 
-# include "terminal.h"
-
-# define MAX_LINE_LEN 256
+# include "terminal.h"		/* MAX_LINE_LEN lives here, next to terminal_t.line */
 
 typedef struct s_command
 {

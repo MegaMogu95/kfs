@@ -1,10 +1,5 @@
 #include "keyboard.h"
 
-#define SC_LSHIFT 0x2A
-#define SC_RSHIFT 0x36
-#define SC_CAPS   0x3A
-#define SC_RELEASE 0x80
-
 static int shift = 0, caps = 0;
 
 /* US QWERTY, scancode set 1, indexed by make code. 0 = no printable char. */
@@ -36,6 +31,8 @@ char kbd_feed(uint8_t sc) {
         case SC_CAPS:   caps ^= 1;      return 0;
     }
     if (sc >= 128) return 0;
+	if (SC_F1 <= sc && sc < SC_F1 + 10)
+		return (CHR_F1 + sc - SC_F1);
     int upper = shift ^ caps;   /* good enough for now; caps should only flip letters — refine later */
     return upper ? map_upper[sc] : map_lower[sc];
 }

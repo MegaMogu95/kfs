@@ -40,10 +40,56 @@ void	terminal_initialize()
 		screens[i].x = 0;
 		screens[i].y = 0;
 		screens[i].color = C_DEFAULT;
+		screens[i].line_len = 0;
+		screens[i].line[0] = '\0';
+		screens[i].prompted = 0;
 		for (size_t j = 0; j < VGA_WIDTH * VGA_HEIGHT; j++)
 			screens[i].buffer[j] = vga_entry(' ', screens[i].color);
 	}
 	terminal_switch(0);
+}
+
+int		terminal_line_push(char c)
+{
+	if (active->line_len + 1 >= MAX_LINE_LEN)	/* keep room for the NUL */
+		return (0);
+	active->line[active->line_len++] = c;
+	active->line[active->line_len] = '\0';
+	return (1);
+}
+
+int		terminal_line_pop(void)
+{
+	if (active->line_len == 0)
+		return (0);
+	active->line[--active->line_len] = '\0';
+	return (1);
+}
+
+void	terminal_line_clear(void)
+{
+	active->line_len = 0;
+	active->line[0] = '\0';
+}
+
+const char	*terminal_line(void)
+{
+	return (active->line);
+}
+
+size_t	terminal_line_len(void)
+{
+	return (active->line_len);
+}
+
+int		terminal_needs_prompt(void)
+{
+	return (!active->prompted);
+}
+
+void	terminal_mark_prompted(void)
+{
+	active->prompted = 1;
 }
 
 void	terminal_putchar(char c)

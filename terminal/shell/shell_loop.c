@@ -5,6 +5,7 @@
 #include "string.h"
 #include "kbd_buffer.h"
 #include "terminal.h"
+#include "keyboard.h"
 #include <stddef.h>
 
 void	prompt()
@@ -25,45 +26,52 @@ char	get_char()
 	return (c);
 }
 
-size_t	get_line(char *line, size_t len)
+/*
+** Reads until Enter and returns the *active* terminal's line.  All state lives
+** in the terminal, so an F1-F10 switch mid-line parks the half-typed command on
+** the terminal we left and resumes whatever was pending on the one we land on.
+*/
+const char	*get_line(void)
 {
 	char	c;
-	size_t	i = 0;
 
-	while (i < len)
+	while (1)
 	{
 		c = get_char();
-		if (c == '\b')
+		if (CHR_F1 <= c && c < CHR_F1 + TERMINAL_COUNT)
 		{
-			if (i > 0)
+			terminal_switch(c - CHR_F1);
+			if (terminal_needs_prompt())	/* never-visited terminal */
 			{
-				terminal_putchar(c);
-				i--;
+				prompt();
+				terminal_mark_prompted();
 			}
 		}
-		else
+		else if (c == '\n')
 		{
 			terminal_putchar(c);
-			if (c == '\n')
-				break;
-			line[i] = c;
-			i++;
+			return (terminal_line());
 		}
+		else if (c == '\b')
+		{
+			if (terminal_line_pop())		/* won't eat into the prompt */
+				terminal_putchar(c);
+		}
+		else if (terminal_line_push(c))
+			terminal_putchar(c);
 	}
-	if (i < len)
-		line[i] = '\0';
-	return (i);
 }
 
 void	shell_loop()
 {
-	char	line[MAX_LINE_LEN];
-	char	known_command;
+	const char	*line;
+	char		known_command;
 
+	prompt();
+	terminal_mark_prompted();
 	while (1)
 	{
-		prompt();
-		get_line(line, MAX_LINE_LEN);
+		line = get_line();
 		known_command = 0;
 		for (size_t i = 0; cmd_arr[i].name != 0; i++)
 		{
@@ -74,10 +82,13 @@ void	shell_loop()
 				break;
 			}
 		}
-		if (!known_command)
+		if (!known_command && line[0] != '\0')
 		{
 			printk_err("unknown command\n");
 			shell_help();
 		}
+		terminal_line_clear();				/* consumed: reset this terminal */
+		prompt();
+		terminal_mark_prompted();
 	}
 }

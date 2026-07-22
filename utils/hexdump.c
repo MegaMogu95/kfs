@@ -1,7 +1,5 @@
 #include "printk.h"
 
-extern uint32_t	stack_top;
-
 void	hexdump(const void *addr, size_t len)
 {
 	const unsigned char	*cast_addr = addr;
@@ -20,7 +18,7 @@ void	hexdump(const void *addr, size_t len)
 				printk("  ");
 		}
 		printk("|");
-		for (size_t i = 0; i < 16; i++)
+		for (size_t i = 0; i < 16 && i < len; i++)
 		{
 			c = (cast_addr[i] >= 0x20 && cast_addr[i] <= 0x7e ? cast_addr[i] : '.');
 			printk("%c", c);

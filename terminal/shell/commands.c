@@ -3,7 +3,12 @@
 #include "hexdump.h"
 #include "io.h"
 
-extern uint32_t	stack_top;
+/*
+** Linker symbols: only the ADDRESS is meaningful, there is no object to read.
+** Declaring them as arrays makes that explicit and stops `stack_top` from
+** silently compiling as a load of whatever .bss variable follows the stack.
+*/
+extern uint8_t	stack_top[];
 
 void	shell_stack_dump()
 {
@@ -13,7 +18,7 @@ void	shell_stack_dump()
 		"mov %%esp, %0"
 		: "=r" (sp)
 	);
-	hexdump(sp, stack_top - (uint32_t)sp);
+	hexdump(sp, (uint32_t)stack_top - (uint32_t)sp);
 }
 
 void	shell_reboot()
