@@ -10,7 +10,11 @@ ISO		:= kfs.iso
 ISODIR	:= isodir
 GRUBCFG	:= grub.cfg
 
-CSRCS	:= kernel.c terminal/vga.c terminal/terminal.c utils/string.c utils/printk.c utils/hexdump.c keyboard/ps2.c keyboard/keyboard.c keyboard/kbd_buffer.c
+CSRCS	:=	kernel.c \
+			terminal/vga.c terminal/terminal.c \
+			utils/string.c utils/printk.c utils/hexdump.c \
+			keyboard/ps2.c keyboard/keyboard.c keyboard/kbd_buffer.c \
+			terminal/shell/shell_loop.c terminal/shell/commands.c
 SSRCS	:= boot.s GDT/gdt.s
 OBJS    := $(SSRCS:.s=.o) $(CSRCS:.c=.o)
 

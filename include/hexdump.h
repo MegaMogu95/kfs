@@ -5,6 +5,4 @@
 
 void	hexdump(const void *addr, size_t len);
 
-void	stack_dump();
-
 #endif

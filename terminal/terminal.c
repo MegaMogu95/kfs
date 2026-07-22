@@ -111,7 +111,8 @@ uint8_t terminal_get_color(void)
 
 void    terminal_clear(void)
 {
-	memset(active->buffer, ' ', sizeof(active->buffer));
+	for (size_t i = 0; i < VGA_WIDTH * VGA_HEIGHT; i++)
+		active->buffer[i] = vga_entry(' ', C_DEFAULT);
 	vga_blit(active->buffer);
 	active->x = 0;
 	active->y = 0;

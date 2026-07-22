@@ -20,5 +20,5 @@ void vprintk(const printk_sink_t *sink, const char *fmt, va_list ap);
 
 #define printk_info(fmt, ...) printk("%C[INFO]%C " fmt, C_INFO, C_DEFAULT, ##__VA_ARGS__)
 #define printk_warn(fmt, ...) printk("%C[WARN]%C " fmt, C_WARN, C_DEFAULT, ##__VA_ARGS__)
-#define printk_err(fmt, ...)  printk("%C[ERR ]%C " fmt, C_ERR,  C_DEFAULT, ##__VA_ARGS__)
+#define printk_err(fmt, ...)  printk("%C[ERR]%C " fmt, C_ERR,  C_DEFAULT, ##__VA_ARGS__)
 #endif

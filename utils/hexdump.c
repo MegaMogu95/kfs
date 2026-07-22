@@ -33,14 +33,3 @@ void	hexdump(const void *addr, size_t len)
 		cast_addr += 16;
 	}
 }
-
-void	stack_dump()
-{
-	void	*sp;
-
-	__asm__ volatile (
-		"mov %%esp, %0"
-		: "=r" (sp)
-	);
-	hexdump(sp, stack_top - (uint32_t)sp);
-}
