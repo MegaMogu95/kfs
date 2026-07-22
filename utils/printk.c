@@ -8,6 +8,9 @@ static void print_number(const printk_sink_t *sink, unsigned long value,
     char   buf[32];
     size_t i = 0;
 
+    if (min_digits > sizeof(buf))       /* never pad past the buffer */
+        min_digits = sizeof(buf);
+
     if (value == 0)
         buf[i++] = '0';
     while (value != 0) {
@@ -20,7 +23,7 @@ static void print_number(const printk_sink_t *sink, unsigned long value,
         sink->put(buf[--i]);
 }
 
-static void print_signed(const printk_sink_t *sink, int v)
+static void print_signed(const printk_sink_t *sink, int v, size_t min_digits)
 {
     unsigned long u;
 
@@ -30,7 +33,7 @@ static void print_signed(const printk_sink_t *sink, int v)
     } else {
         u = (unsigned long)v;
     }
-    print_number(sink, u, 10, 0, 0);
+    print_number(sink, u, 10, 0, min_digits);
 }
 
 static void print_string(const printk_sink_t *sink, const char *s)
@@ -51,18 +54,31 @@ void vprintk(const printk_sink_t *sink, const char *fmt, va_list ap)
             continue;
         }
         i++;
+
+        /* optional digit count: %8x, %08x and %3d all pad with '0' to width */
+        size_t digits = 0;
+        if (fmt[i] == '*') {
+            int n = va_arg(ap, int);
+            digits = n > 0 ? (size_t)n : 0;
+            i++;
+        } else {
+            while (fmt[i] >= '0' && fmt[i] <= '9')
+                digits = digits * 10 + (size_t)(fmt[i++] - '0');
+        }
+
         switch (fmt[i]) {
             case 'c': sink->put((char)va_arg(ap, int));                    break;
             case 's': print_string(sink, va_arg(ap, const char *));        break;
             case 'd':
-            case 'i': print_signed(sink, va_arg(ap, int));                 break;
-            case 'u': print_number(sink, va_arg(ap, unsigned int), 10, 0, 0); break;
-            case 'x': print_number(sink, va_arg(ap, unsigned int), 16, 0, 0); break;
-            case 'X': print_number(sink, va_arg(ap, unsigned int), 16, 1, 0); break;
-            case 'b': print_number(sink, va_arg(ap, unsigned int),  2, 0, 0); break;
+            case 'i': print_signed(sink, va_arg(ap, int), digits);         break;
+            case 'u': print_number(sink, va_arg(ap, unsigned int), 10, 0, digits); break;
+            case 'x': print_number(sink, va_arg(ap, unsigned int), 16, 0, digits); break;
+            case 'X': print_number(sink, va_arg(ap, unsigned int), 16, 1, digits); break;
+            case 'b': print_number(sink, va_arg(ap, unsigned int),  2, 0, digits); break;
             case 'p':
                 sink->put('0'); sink->put('x');
-                print_number(sink, (unsigned long)va_arg(ap, void *), 16, 0, 8);
+                print_number(sink, (unsigned long)va_arg(ap, void *), 16, 0,
+                             digits ? digits : 8);   /* 8 is the default for %p */
                 break;
             case 'C': {
                 uint8_t color = (uint8_t)va_arg(ap, int);
