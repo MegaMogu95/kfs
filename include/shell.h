@@ -25,5 +25,6 @@ void	shell_reboot(void);
 void	shell_halt(void);
 void	shell_help(void);
 void	shell_gdt_dump(void);
+void	shell_regs(void);
 
 #endif
