@@ -71,44 +71,48 @@ static void	prompt(void)
 	line_here()->prompted = 1;
 }
 
-static char	get_char(void)
+static key_event_t	get_event(void)
 {
-	char	c = 0;
+	key_event_t	ev;
 
-	while (c == 0)
-	{
+	while (!kbd_buf_pop(&ev))
 		ps2_poll();
-		kbd_buf_pop(&c);
-	}
-	return (c);
+	return (ev);
 }
 
-/* Reads until Enter and returns the active terminal's line. */
+/*
+** Reads until Enter and returns the active terminal's line.
+**
+** The F1-F10 -> switch-screen policy lives HERE, in the only loop that reads
+** the keyboard, not in keyboard.c: the decoder must not know that terminals
+** exist, or the same key could never mean something else in another context.
+** terminal_switch bounds-checks the index itself.
+*/
 static const char	*get_line(void)
 {
-	char	c;
+	key_event_t	ev;
 
 	while (1)
 	{
-		c = get_char();
-		if (CHR_F1 <= c && c < CHR_F1 + TERMINAL_COUNT)
+		ev = get_event();
+		if (KEY_F1 <= ev.code && ev.code < KEY_F1 + TERMINAL_COUNT)
 		{
-			terminal_switch(c - CHR_F1);
+			terminal_switch(ev.code - KEY_F1);
 			if (!line_here()->prompted)		/* never-visited terminal */
 				prompt();
 		}
-		else if (c == '\n')
+		else if (ev.code == '\n')
 		{
-			terminal_putchar(c);
+			terminal_putchar('\n');
 			return (line_here()->buf);
 		}
-		else if (c == '\b')
+		else if (ev.code == '\b')
 		{
 			if (line_pop())
-				terminal_putchar(c);
+				terminal_putchar('\b');
 		}
-		else if (line_push(c))
-			terminal_putchar(c);
+		else if (ev.code < 0x100 && line_push((char)ev.code))
+			terminal_putchar((char)ev.code);
 	}
 }
 

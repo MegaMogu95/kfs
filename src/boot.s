@@ -21,8 +21,8 @@ stack_top:
 .global _start
 _start:
 	cli
-	call	gdt_init
 	mov		$stack_top, %esp
+	call	gdt_init
 	call	kernel_main
 1:	hlt
 	jmp 1b

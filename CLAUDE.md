@@ -136,32 +136,37 @@ scancode debugging confusing.
 
 ## Module layout and data flow
 
-The kernel is a **U shape**. Two independent columns, joined at the top by
-`kernel_main` and at the bottom by `io.h`.
+There are two stacks — one for output, one for input — but they are **not** two
+independent columns joined only at the top. `shell_loop` sits above both: it
+reads events from the keyboard stack and writes characters to the terminal
+stack, in the same function. That is what a shell *is*, and pretending
+otherwise produced a diagram that did not describe the code.
 
 ```
-                        kernel_main
-                   (the only code touching both)
-                    /                      \
-   OUTPUT (down)   /                        \   INPUT (up)
-   printk          ← format                 kbd_buffer   ← ring buffer (the seam)
-   terminal        ← state, scroll, cursor  keyboard     ← scancode → key_event_t
-   vga             ← 0xB8000 + CRTC         ps2          ← poll now, IRQ later
-                    \                        /
-                     io.h  (inb/outb — the ONLY door to hardware)
-                    /                        \
-              VGA screen                PS/2 keyboard
+   OUTPUT                              INPUT
+   printk       format                 kbd_buffer   ring buffer (the seam)
+   terminal     state, scroll, cursor  keyboard     scancode → key_event_t
+   vga          0xB8000 + CRTC         ps2          poll now, IRQ later
+        \                                   /
+         io.h  (inb/outb — the ONLY door to hardware)
+        /                                   \
+   VGA screen                          PS/2 keyboard
+
+   shell_loop (src/shell/) reads INPUT and writes OUTPUT.
+   kernel_main sets up the terminal, then hands control to it and never returns.
 ```
 
-**Invariants that make this work — do not break them:**
+**Invariants that are actually true — do not break them:**
 
-1. **The two columns never call each other.** `keyboard.c` must not know
-   terminals exist. That's why the Alt+F-key → screen-switch *policy* lives in
-   `kernel_main`, not in the decoder.
+1. **The *drivers* never call each other.** `keyboard.c` does not know terminals
+   exist; `terminal.c` does not know a keyboard exists. Everything that joins
+   them is in `shell/`. This is what makes the Alt+F-key → screen-switch policy
+   the shell's business (see Design: shell) and not the decoder's.
 2. **Nothing above `io.h` runs an `in`/`out` instruction directly.** `io.h` is
-   the only x86-specific code in the tree.
+   the only x86-specific code in the tree — with one deliberate exception,
+   `shell_reboot`, which pulses the 8042 through `inb`/`outb` from `commands.c`.
 3. **`ps2.c` is the only poll-specific file.** Everything above it is source-
-   agnostic, which is the entire point (see below).
+   agnostic, which is the entire point (see Design: keyboard).
 4. **Keep authoritative state in variables, never read the framebuffer back to
    make decisions.**
 
@@ -302,33 +307,27 @@ layer knowing what a line *is*.
 `prompted` — those are the shell's (see Design: shell). A terminal knows what
 characters are on it and where the cursor is, and nothing about what they mean.
 
-**`visible` / `focused` is still the right end state, and is not implemented
-yet.** The code has one `active` pointer. Two variables answer different
-questions — "what's on the monitor" (a property of the machine, one global
-forever) vs "where does this caller's output go" (per-process in a real kernel).
-They coincide today because the only writer is the human at the keyboard, so one
-variable *appears* to work; it breaks the moment a second writer exists (a timer
-interrupt in KFS-4, a background process in KFS-5). At that point split `active`
-into the two, introduce the `terminal_put(t, x, y, c)` choke point below, and in
-KFS-5 `focused` becomes a field in the task struct (`current->tty`) while
-`visible` stays global. **This is a known deferral, not an oversight** — see Open
-threads.
+**Every function writes to `active`.** There are no explicit-target
+(`terminal_putchar_to(t, c)`) variants and no `terminal_put` choke point —
+`terminal_putchar` writes `active->buffer` and calls `vga_put_entry`
+unconditionally, side by side, in each of its branches. This is correct
+*today* and only today: one screen is visible, the only writer is the human at
+the keyboard, so "the active terminal" and "the visible terminal" are the same
+thing and writing straight through to `0xB8000` is always right.
 
-**Explicit-target functions are the primitives; no-argument ones are wrappers:**
+It stops being right at the **first background writer** — the PIT handler in
+KFS-4, a background process in KFS-5. A write meant for screen 3 while screen 0
+is on the monitor would scribble on the monitor. When that day comes the change
+is mechanical and should be done in one go:
 
-```c
-void terminal_putchar_to(terminal_t *t, char c);
-void terminal_putchar(char c) { terminal_putchar_to(focused, c); }
-```
-
-Every function doing real work is told which terminal it operates on. Only the
-thin wrappers read a global. Same for the internals — `terminal_put(t, ...)`,
-`terminal_scroll(t)`, `terminal_newline(t)`, `terminal_sync_cursor(t)`.
-**Also not implemented yet** — the current functions all read `active` directly.
-Same deferral as `visible`/`focused`; do both at once.
-
-**`terminal_put` is the single choke point.** Nothing else in the file may touch
-`t->buffer` or call `vga_put_entry`:
+- split `active` into `visible` (what's on the monitor — a property of the
+  machine, one global forever) and `focused` (where this caller's output goes —
+  per-process in a real kernel; in KFS-5 it becomes `current->tty` and stops
+  being a global at all);
+- give every function that does real work an explicit `terminal_t *t` parameter,
+  leaving the no-argument versions as one-line wrappers that read `focused`;
+- funnel all framebuffer access through one choke point, so the visible check
+  exists in exactly one place:
 
 ```c
 static void terminal_put(terminal_t *t, size_t x, size_t y, char c) {
@@ -338,15 +337,14 @@ static void terminal_put(terminal_t *t, size_t x, size_t y, char c) {
 }
 ```
 
-That conditional is the whole mechanism for background screens: writes to a
-non-visible terminal update its shadow buffer and skip the framebuffer, and
-`terminal_switch` blits it back when you return. Same rule for
-`terminal_sync_cursor` — a background terminal advancing `x`/`y` must not move
-the visible hardware cursor.
+That conditional is the whole mechanism for background screens. The same rule
+applies to the cursor: a background terminal advancing `x`/`y` must not move the
+visible hardware cursor, which the current `vga_update_cursor` calls would do.
 
-Public API: `terminal_initialize`, `terminal_putchar`, `terminal_write(data,
-size)`, `terminal_writestring`, `terminal_set_color`, `terminal_get_color`,
-`terminal_clear`, `terminal_switch`, `terminal_current`.
+Public API as it stands: `terminal_initialize`, `terminal_putchar`,
+`terminal_write(data, size)`, `terminal_writestring`, `terminal_set_color`,
+`terminal_get_color`, `terminal_clear`, `terminal_switch`, `terminal_current`.
+File-private: `terminal_scroll`, `terminal_newline`.
 
 **`C_DEFAULT` lives in `vga.h`, not `terminal.h`.** `printk.h`'s log macros
 (`printk_info` etc.) expand to it, and `printk.h` must be includable without
@@ -418,24 +416,39 @@ In KFS-4 the IRQ1 handler becomes the producer (calling the same `kbd_feed` +
 `for(;;) __asm__("hlt");`. `keyboard.c`, `kbd_buffer.c` and the whole output
 column are untouched.
 
-**The decoder should return an event, not a `char`** — there is no character for
-F1, and no way for a `char` to say "Alt was held":
+**The decoder returns an event, not a `char`** — there is no character for F1,
+and no way for a `char` to say "Alt was held":
 
 ```c
 typedef struct {
     uint16_t code;   /* ASCII 1..127, or a KEY_* constant ≥ 0x100 */
     uint8_t  mods;   /* MOD_SHIFT | MOD_CTRL | MOD_ALT */
 } key_event_t;
+
+key_event_t kbd_feed(uint8_t sc);   /* code == 0 means "no event" */
 ```
 
-**Not implemented.** `kbd_feed` returns `char` and `kbd_buf_pop` takes a
-`char *`. F1–F10 are smuggled through as *negative* values (`CHR_F1 = -10`, so
-the keys occupy −10..−1) and the shell tests `CHR_F1 <= c && c < CHR_F1 +
-TERMINAL_COUNT`. This works — signed `char` on i686, and 0 is reserved as "no
-key" by the poll loop — but it is a sign trick, not a type, and it has no room
-for modifiers. It is the thing blocking arrow keys, history, and Ctrl+C/Ctrl+L.
-Widening to `key_event_t` touches `keyboard.c`, `kbd_buffer.c` and the shell's
-`get_char`/`get_line`; nothing in the output column. See Open threads.
+`kbd_feed` returns the struct by value (4 bytes — cheaper than an out-parameter
+on i386) and the ring buffer carries `key_event_t`. **`code == 0` is reserved as
+"this scancode produced nothing"** — a modifier press, a release, a `0xE0`
+prefix — so the consumer's loop is `while (!kbd_buf_pop(&ev)) ps2_poll();`.
+
+Non-character keys start at **`0x100`**, above every ASCII value, so one
+`uint16_t` distinguishes them without a tag field: `KEY_F1`–`KEY_F10` are
+`0x100`–`0x109`, arrows are `0x110`–`0x113`. A consumer that only wants text
+tests `ev.code < 0x100`, which is exactly what the shell's `get_line` does
+before pushing to the line buffer.
+
+This replaced an earlier scheme where `kbd_feed` returned a `char` and F1–F10
+were smuggled through as *negative* values (`CHR_F1 = -10`). That worked — `char`
+is signed on i686 — but it was a sign trick rather than a type, had no room for
+modifiers at all, and made arrow keys and Ctrl+C unreachable.
+
+**Modifiers are held in one `static uint8_t mods` in `keyboard.c`**, set on make
+and cleared on break, and stamped into every event. Keeping them in the decoder
+rather than in the event stream is deliberate: a modifier is a *level*, not an
+edge, and a consumer reconstructing it from press/release events would desync
+the first time the buffer overflowed.
 
 Hardware facts:
 - Data port `0x60`, status port `0x64`, bit 0 of status = output buffer full.
@@ -453,9 +466,26 @@ Hardware facts:
 - Ctrl+letter: `c -= 'a' - 1` gives `0x01`–`0x1A`. Needed in KFS-2 for Ctrl+C /
   Ctrl+L.
 
-**Shortcut policy lives in `kernel_main`**, not in `keyboard.c`:
-Alt + F1..F8 → `terminal_switch(ev.code - KEY_F1)`. `terminal_switch` bounds-
-checks `n >= TERMINAL_COUNT` itself.
+**Shortcut policy lives in `get_line` (`src/shell/shell_loop.c`)**, not in
+`keyboard.c`: bare F1–F10 → `terminal_switch(ev.code - KEY_F1)`, and
+`terminal_switch` bounds-checks `n >= TERMINAL_COUNT` itself.
+
+The rule the policy's *location* enforces is "the decoder must not know
+terminals exist" — screen switching is one possible meaning of F1, not the
+meaning of F1. The rule it does **not** enforce is "policy belongs to
+`kernel_main`": `kernel_main` initialises the terminal and calls `shell_loop`,
+which never returns, so the shell owns the only loop that reads the keyboard.
+Putting the policy anywhere else would mean inventing a dispatch layer with one
+caller. If KFS-4/5 ever add a second consumer of the event stream, that is the
+point to hoist it — not before.
+
+**No Alt modifier is required.** The keys are bare F1–F10, which is why they can
+be tested with a plain range check on `ev.code`. Alt + F-key is what a Linux
+console uses because the F-keys themselves belong to applications there; nothing
+in KFS needs them yet. If they ever do, the test becomes
+`ev.mods & MOD_ALT`, and the `MOD_ALT` bit is already being tracked and
+delivered — which is half the reason the modifier field exists now rather than
+later.
 
 ## Design: GDT (KFS-2)
 
@@ -688,11 +718,6 @@ yield a `key_event_t` rather than a `char` — see Open threads.
 
 ## Rejected designs (don't re-propose)
 
-- **Marking non-erasable cells with `'\0'` in the framebuffer.** Distinguishes
-  "never written" from "written", not "the user's input" from "not the user's".
-  A shell prompt is written *after* init, so backspace would eat it. The boundary
-  is the shell's line buffer: `line_pop()` refuses at `len == 0`, so backspace
-  physically cannot walk back into the prompt.
 - **`input_x`/`input_y` as the backspace boundary.** Superseded — the line
   buffer's own length is the boundary, and storing screen coordinates would need
   invalidating on every scroll.
@@ -704,10 +729,6 @@ yield a `key_event_t` rather than a `char` — see Open threads.
   KFS-5 migration where line state follows a process rather than a screen. The
   per-terminal *behaviour* was worth keeping and survives, keyed on
   `terminal_current()` from the shell side.
-- **A `gdt.h` exporting selector constants to C.** Nothing in C uses them;
-  `gdt_init` is called from `boot.s`. They belong as `.set` directives in
-  `gdt.s`. Revisit only if a `gdt` dump command or the KFS-5 TSS needs them.
-- **`memset` for blanking screen cells** — see Gotchas.
 - **Building `inb`/`outb` in a `.s` file** — see `io.h` section.
 
 ## Gotchas already hit
@@ -720,7 +741,7 @@ yield a `key_event_t` rather than a `char` — see Open threads.
   ```
   grub-mkrescue -o kfs.iso -d /usr/lib/grub/i386-pc isodir \
     --install-modules="multiboot normal iso9660 biosdisk configfile" \
-    --locales="" --fonts="" --themes="" --compress=xz
+    --locales="" --fonts="" --themes=""
   ```
   Brings it to ~0.6 MB. `-d /usr/lib/grub/i386-pc` forces BIOS-only (skips EFI).
 - `grub-mkrescue` needs `xorriso` **and** `mtools` installed or it fails with
@@ -731,18 +752,8 @@ yield a `key_event_t` rather than a `char` — see Open threads.
 
 **Terminal (all three found in review of the first `terminal.c`)**
 
-- **`memmove` counts bytes, not cells.** `buffer` is `uint16_t[]`, so scrolling
-  needs `VGA_WIDTH * (VGA_HEIGHT - 1) * sizeof(uint16_t)`. Omitting the
-  `sizeof` scrolls exactly half the screen. Note the pointer arithmetic
-  `buffer + VGA_WIDTH` *is* correct — it scales by element size — which makes
-  the mismatch easy to miss.
 - **Scroll must blank the last row** after shifting, or row 24 keeps a stale copy
   of row 23.
-- **`memset` cannot fill a 16-bit buffer.** It writes one byte at a time, so
-  `memset(buffer, ' ', sizeof buffer)` gives every cell `0x2020` — character
-  `0x20` (a space, correct) with attribute `0x20` (black on green). Use a loop
-  writing `vga_entry(' ', t->color)`. Affects `terminal_initialize`,
-  `terminal_clear` **and** the scroll blank-row. Set `color` *before* filling.
 - **Cast to `unsigned char` in `vga_entry`.** `char` is signed on i686, so a byte
   ≥ 0x80 sign-extends to `0xFF8x` and clobbers the attribute half. Only shows up
   with box-drawing characters, which makes it maddening to find later.
@@ -758,24 +769,24 @@ yield a `key_event_t` rather than a `char` — see Open threads.
 
 - ~~**Input boundary for backspace belongs to the shell (KFS-2)**~~ — *done; the
   shell's line editor owns it. See Design: shell.*
-- **`key_event_t` is designed but not built.** The keyboard still moves `char`s
-  and encodes F1–F10 as negative values. This is the single largest blocker: no
-  arrow keys, no history, no Ctrl+C/Ctrl+L until it is widened. Confined to
-  `keyboard.c`, `kbd_buffer.c` and the shell's `get_char`/`get_line`. See Design:
-  keyboard.
-- **`visible`/`focused` split and the `terminal_put` choke point.** Both designed
-  in Design: terminal, neither implemented — the code has one `active` pointer
-  and writes the framebuffer unconditionally. Harmless while the only writer is
-  the keyboard; must be done before the first background writer, i.e. the PIT
-  handler in KFS-4.
+- ~~**`key_event_t`**~~ — *done. `kbd_feed` returns events, the ring buffer
+  carries them, modifiers and arrow keys are decoded.*
+- **Arrow keys are decoded but ignored.** `KEY_UP`/`KEY_DOWN`/`KEY_LEFT`/
+  `KEY_RIGHT` reach `get_line`, which drops them (they fail the `< 0x100` test).
+  History and in-line cursor movement are now purely a `shell_loop.c` job — the
+  plumbing beneath is finished.
+- **`MOD_CTRL` is delivered but nothing consumes it.** Ctrl+letter already
+  arrives as `0x01`–`0x1A`; Ctrl+C (abandon line) and Ctrl+L (clear) are a few
+  lines in `get_line`.
+- **`visible`/`focused` split, explicit-target functions, and the `terminal_put`
+  choke point.** Designed in Design: terminal, none implemented — the code has
+  one `active` pointer and every function writes the framebuffer unconditionally.
+  Harmless while the only writer is the keyboard; **must** be done before the
+  first background writer, i.e. the PIT handler in KFS-4.
 - **`gdt.s` uses bare literals** — `$0x10`, `$0x18`, `$0x08` for the selectors
   and raw `.quad`s for the descriptors. The file's own design section says
   `.set` constants, "never magic numbers — correctors ask why 0x9A?". Cheap fix,
   directly on the evaluation surface.
-- **`boot.s` calls `gdt_init` before setting `%esp`.** It works only because GRUB
-  left a usable stack behind, and `gdt_init` reloads `SS` while running on it.
-  The intended order is `mov $stack_top, %esp` *then* `call gdt_init`, so the
-  kernel is running on its own stack before anything touches segment registers.
 - **Width/flag handling in `printk`** — `%08x`, `%-10s`, `%#x` are not
   implemented. Now actively wanted: `%08x` for a future `gdt` command and the
   hexdump address column, `%-12s` for `help`'s alignment (currently padded by
@@ -786,9 +797,7 @@ yield a `key_event_t` rather than a `char` — see Open threads.
 - **User segments (`0x20`–`0x30`) are built but unused.** Nothing runs in ring 3
   until KFS-5. Their RPL bits (`| 3`) and the TSS needed for the ring 3 → ring 0
   transition are both deferred.
-- **`map_lower`/`map_upper` are QWERTY.** Scancodes are positional, so on the
-  author's AZERTY keyboard pressing A yields Q. Swapping in AZERTY tables is a
-  data change, no logic change.
+- **`map_lower`/`map_upper` are QWERTY.**
 - **Hardware scrolling** via CRTC registers `0x0C`/`0x0D` as an optimisation for
   `terminal_scroll`. Not needed.
 - Real terminals keep a per-column bitmap of tab stops (that's how `tabs -4`

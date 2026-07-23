@@ -10,8 +10,7 @@
  * and this whole function gets deleted. */
 void ps2_poll(void) {
     if (inb(PS2_STATUS) & PS2_OUT_FULL) {
-        uint8_t sc = inb(PS2_DATA);
-        char c = kbd_feed(sc);
-        if (c) kbd_buf_push(c);
+        key_event_t ev = kbd_feed(inb(PS2_DATA));
+        if (ev.code) kbd_buf_push(ev);
     }
 }
