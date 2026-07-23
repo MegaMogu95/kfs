@@ -34,6 +34,13 @@ enum vga_color {
 	VGA_COLOR_WHITE = 15,
 };
 
+/*
+** The kernel's default attribute.  It lives here rather than in terminal.h
+** because printk.h's log macros expand to it, and printk.h must not have to
+** pull in the terminal layer to be self-contained.
+*/
+#define C_DEFAULT vga_entry_color(VGA_COLOR_LIGHT_GREEN, VGA_COLOR_BLACK)
+
 uint8_t  vga_entry_color(enum vga_color fg, enum vga_color bg);
 uint16_t vga_entry(char c, uint8_t color);
 void     vga_put_entry(size_t x, size_t y, char c, uint8_t color);

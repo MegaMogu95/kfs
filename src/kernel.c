@@ -20,7 +20,7 @@ static const char	*ascii_art[25] =
 	"# **************************************************************************** #"
 };
 
-void	kernel_main()
+void	kernel_main(void)
 {
 	terminal_initialize();
 	for (size_t i = 0; i < 11; i++)

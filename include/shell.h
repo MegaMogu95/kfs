@@ -1,29 +1,28 @@
 #ifndef SHELL_H
 # define SHELL_H
 
-# include "terminal.h"		/* MAX_LINE_LEN lives here, next to terminal_t.line */
+# define MAX_LINE_LEN 256
 
 typedef struct s_command
 {
-	const char			*name;
-	void				(*handler)(void);
+	const char	*name;
+	const char	*desc;
+	void		(*handler)(void);
 }	t_command;
 
-void	shell_stack_dump();
-void	shell_reboot();
-void	shell_halt();
-void	shell_help();
+/*
+** Defined in src/shell/commands.c, NULL-name terminated.  `help` walks the
+** same array the dispatcher walks, so the two can never drift apart.  It is
+** declared extern rather than defined here on purpose: a `static const` table
+** in a header gives every translation unit its own private copy.
+*/
+extern const t_command	cmd_arr[];
 
-static const t_command	cmd_arr[] =
-{
-	{"stack_dump", shell_stack_dump},
-	{"reboot", shell_reboot},
-	{"halt", shell_halt},
-	{"help", shell_help},
-	{"clear", terminal_clear},
-	{0, 0}
-};
+void	shell_loop(void);
 
-void	shell_loop();
+void	shell_stack_dump(void);
+void	shell_reboot(void);
+void	shell_halt(void);
+void	shell_help(void);
 
 #endif

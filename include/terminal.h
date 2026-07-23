@@ -3,21 +3,24 @@
 
 # include <stdint.h>
 # include <stddef.h>
-# include "string.h"
+# include "libk.h"
 # include "vga.h"
 
-# define TERMINAL_COUNT 10
-# define MAX_LINE_LEN 256
-# define C_DEFAULT vga_entry_color(VGA_COLOR_LIGHT_GREEN, VGA_COLOR_BLACK) 
+# define TERMINAL_COUNT 10		/* F1..F10 */
 
+/*
+** One shadow buffer per screen.  Writes to a screen that is not currently
+** mirrored to 0xB8000 update only this struct; terminal_switch blits it back.
+**
+** Deliberately dumb: a terminal knows what is on it and where the cursor is,
+** and nothing about what the text means.  The line being typed belongs to the
+** shell's line editor (src/shell/shell_loop.c), not here.
+*/
 typedef struct {
     uint16_t	buffer[VGA_WIDTH * VGA_HEIGHT];
-	char		line[MAX_LINE_LEN];	/* command being typed on THIS terminal */
-	size_t		line_len;
-    size_t		x;
-    size_t		y;
+    size_t		x;				/* column */
+    size_t		y;				/* row */
     uint8_t		color;
-	uint8_t		prompted;			/* a prompt is already on screen */
 } terminal_t;
 
 void    terminal_initialize(void);
@@ -29,14 +32,7 @@ uint8_t terminal_get_color(void);
 void    terminal_clear(void);
 void    terminal_switch(size_t n);
 
-/* line editing — always acts on the *active* terminal */
-int         terminal_line_push(char c);  /* append; 0 if the line is full */
-int         terminal_line_pop(void);     /* backspace; 0 if the line is empty */
-void        terminal_line_clear(void);
-const char *terminal_line(void);         /* NUL-terminated */
-size_t      terminal_line_len(void);
-
-int     terminal_needs_prompt(void);
-void    terminal_mark_prompted(void);
+/* Which screen is active -- the shell keys its per-terminal line state on it. */
+size_t  terminal_current(void);
 
 #endif

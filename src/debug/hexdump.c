@@ -1,3 +1,4 @@
+#include "debug.h"
 #include "printk.h"
 
 void	hexdump(const void *addr, size_t len)

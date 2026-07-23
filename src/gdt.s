@@ -40,3 +40,4 @@ gdt_init:
 	ljmp		$0x08, $1f
 	1:
 	ret
+
