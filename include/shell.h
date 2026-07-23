@@ -24,5 +24,6 @@ void	shell_stack_dump(void);
 void	shell_reboot(void);
 void	shell_halt(void);
 void	shell_help(void);
+void	shell_gdt_dump(void);
 
 #endif
